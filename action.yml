@@ -1,0 +1,26 @@
+name: '@rotki/action-sqldiff'
+description: Checks for changes in SQLite/SQLCipher databases and posts a diff in the PR
+author: Rotki Solutions GmbH
+
+branding:
+  icon: database
+  color: green
+
+inputs:
+  GITHUB_TOKEN:
+    description: The GITHUB_TOKEN for the repo
+    required: true
+  files:
+    description: The glob pattern for file that are considered database files
+    required: true
+  db_key:
+    description: The key used to unlock the sqlcipher encrypted database
+    default: '123'
+
+outputs:
+  time:
+    description: Your output description here
+
+runs:
+  using: node20
+  main: dist/index.js
