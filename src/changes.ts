@@ -71,6 +71,10 @@ export async function prepareForDiff(): Promise<FileVersions[]> {
     }
   }
 
+  // If there are no changes, no reason to proceed to checkout
+  if (files.length === 0)
+    return [];
+
   const baseRepoUrl = base.repo.git_url;
   const headRepoUrl = head.repo?.git_url;
 
