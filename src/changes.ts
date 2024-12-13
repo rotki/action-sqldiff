@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import * as path from 'node:path';
 import fs from 'node:fs';
 import * as github from '@actions/github';
@@ -17,7 +17,11 @@ function cloneRepo(target: 'head' | 'base', url: string, ref: string, sha: strin
 
   const repo = createDBDir(target, 'repo');
   core.info(`cloning ${cloneUrl} @ ${ref} as ${target} to ${repo}`);
-  const cloneResult = execSync(`git clone ${cloneUrl} --branch ${ref} --depth 1 ${repo}`, { encoding: 'utf-8' });
+  const args = ['clone', cloneUrl, '--branch', ref, '--depth', '1', repo];
+  const cloneResult = execFileSync('git', args, {
+    encoding: 'utf-8',
+    shell: true,
+  });
   if (cloneResult)
     core.info(`clone: ${cloneResult}`);
 

@@ -540,8 +540,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OidcClient = void 0;
-const http_client_1 = __nccwpck_require__(8373);
-const auth_1 = __nccwpck_require__(6859);
+const http_client_1 = __nccwpck_require__(787);
+const auth_1 = __nccwpck_require__(3673);
 const core_1 = __nccwpck_require__(9999);
 class OidcClient {
     static createHttpClient(allowRetry = true, maxRetry = 10) {
@@ -1999,7 +1999,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getApiBaseUrl = exports.getProxyFetch = exports.getProxyAgentDispatcher = exports.getProxyAgent = exports.getAuthString = void 0;
-const httpClient = __importStar(__nccwpck_require__(8373));
+const httpClient = __importStar(__nccwpck_require__(787));
 const undici_1 = __nccwpck_require__(1909);
 function getAuthString(token, options) {
     if (!token && !options.auth) {
@@ -2103,7 +2103,7 @@ exports.getOctokitOptions = getOctokitOptions;
 
 /***/ }),
 
-/***/ 6859:
+/***/ 3673:
 /***/ (function(__unused_webpack_module, exports) {
 
 "use strict";
@@ -2191,7 +2191,7 @@ exports.PersonalAccessTokenCredentialHandler = PersonalAccessTokenCredentialHand
 
 /***/ }),
 
-/***/ 8373:
+/***/ 787:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -2233,7 +2233,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.HttpClient = exports.isHttps = exports.HttpClientResponse = exports.HttpClientError = exports.getProxyUrl = exports.MediaTypes = exports.Headers = exports.HttpCodes = void 0;
 const http = __importStar(__nccwpck_require__(8611));
 const https = __importStar(__nccwpck_require__(5692));
-const pm = __importStar(__nccwpck_require__(7485));
+const pm = __importStar(__nccwpck_require__(7407));
 const tunnel = __importStar(__nccwpck_require__(6124));
 const undici_1 = __nccwpck_require__(1909);
 var HttpCodes;
@@ -2758,7 +2758,7 @@ class HttpClient {
         }
         const usingSsl = parsedUrl.protocol === 'https:';
         proxyAgent = new undici_1.ProxyAgent(Object.assign({ uri: proxyUrl.href, pipelining: !this._keepAlive ? 0 : 1 }, ((proxyUrl.username || proxyUrl.password) && {
-            token: `${proxyUrl.username}:${proxyUrl.password}`
+            token: `Basic ${Buffer.from(`${proxyUrl.username}:${proxyUrl.password}`).toString('base64')}`
         })));
         this._proxyAgentDispatcher = proxyAgent;
         if (usingSsl && this._ignoreSslError) {
@@ -2850,7 +2850,7 @@ const lowercaseKeys = (obj) => Object.keys(obj).reduce((c, k) => ((c[k.toLowerCa
 
 /***/ }),
 
-/***/ 7485:
+/***/ 7407:
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -2872,11 +2872,11 @@ function getProxyUrl(reqUrl) {
     })();
     if (proxyVar) {
         try {
-            return new URL(proxyVar);
+            return new DecodedURL(proxyVar);
         }
         catch (_a) {
             if (!proxyVar.startsWith('http://') && !proxyVar.startsWith('https://'))
-                return new URL(`http://${proxyVar}`);
+                return new DecodedURL(`http://${proxyVar}`);
         }
     }
     else {
@@ -2934,6 +2934,19 @@ function isLoopbackAddress(host) {
         hostLower.startsWith('127.') ||
         hostLower.startsWith('[::1]') ||
         hostLower.startsWith('[0:0:0:0:0:0:0:1]'));
+}
+class DecodedURL extends URL {
+    constructor(url, base) {
+        super(url, base);
+        this._decodedUsername = decodeURIComponent(super.username);
+        this._decodedPassword = decodeURIComponent(super.password);
+    }
+    get username() {
+        return this._decodedUsername;
+    }
+    get password() {
+        return this._decodedPassword;
+    }
 }
 //# sourceMappingURL=proxy.js.map
 
@@ -36620,7 +36633,11 @@ function cloneRepo(target, url, ref, sha) {
         cloneUrl = cloneUrl.replace('git', 'https');
     const repo = (0, fs_1.createDBDir)(target, 'repo');
     core.info(`cloning ${cloneUrl} @ ${ref} as ${target} to ${repo}`);
-    const cloneResult = (0, node_child_process_1.execSync)(`git clone ${cloneUrl} --branch ${ref} --depth 1 ${repo}`, { encoding: 'utf-8' });
+    const args = ['clone', cloneUrl, '--branch', ref, '--depth', '1', repo];
+    const cloneResult = (0, node_child_process_1.execFileSync)('git', args, {
+        encoding: 'utf-8',
+        shell: true,
+    });
     if (cloneResult)
         core.info(`clone: ${cloneResult}`);
     const branch = (0, node_child_process_1.execSync)('git branch --show-current', {
