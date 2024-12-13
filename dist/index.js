@@ -36629,6 +36629,7 @@ const utils_1 = __nccwpck_require__(6236);
 const fs_1 = __nccwpck_require__(7682);
 function cloneRepo(target, url, ref, sha) {
     let cloneUrl = url;
+    (0, utils_1.validateGitUrl)(cloneUrl);
     if (cloneUrl.startsWith('git'))
         cloneUrl = cloneUrl.replace('git', 'https');
     const repo = (0, fs_1.createDBDir)(target, 'repo');
@@ -37172,9 +37173,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.isDBFile = isDBFile;
+exports.validateGitUrl = validateGitUrl;
 const micromatch_1 = __importDefault(__nccwpck_require__(8302));
 function isDBFile(filename, patterns) {
     return micromatch_1.default.isMatch(filename, patterns, { basename: true });
+}
+function validateGitUrl(url) {
+    const urlRegex = /^(https?:\/\/|git@[\w.-]+:)[\w#%+./:=@~-]+(.git)?$/;
+    if (!urlRegex.test(url))
+        throw new Error(`Invalid repository URL: '${url}'`);
 }
 
 

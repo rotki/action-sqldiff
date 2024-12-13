@@ -5,13 +5,16 @@ import * as github from '@actions/github';
 import * as core from '@actions/core';
 import { getFiles, getGithubToken } from './input';
 import { NotAPullRequestError } from './errors';
-import { isDBFile } from './utils';
+import { isDBFile, validateGitUrl } from './utils';
 import { createDBDir } from './fs';
 import type { ComparedDatabases, FileVersions } from './types';
 import type { PullRequest } from '@octokit/webhooks-types/schema';
 
 function cloneRepo(target: 'head' | 'base', url: string, ref: string, sha: string): string {
   let cloneUrl = url;
+
+  validateGitUrl(cloneUrl);
+
   if (cloneUrl.startsWith('git'))
     cloneUrl = cloneUrl.replace('git', 'https');
 
