@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { beforeEach, expect, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as core from '@actions/core';
 import { checkEncryptedDb, checkSQLCipherVersion, dumpDatabase, sqlDiff } from '../src/sqlcipher';
 import { cleanupTmpDir } from '../src/fs';
