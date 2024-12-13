@@ -17,14 +17,16 @@ on:
     branches:
       - main
 
-permissions:
-  contents: read
-  pull-requests: write
+permissions: {}
 
 jobs:
   test-action:
     name: GitHub Actions Test
     runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - name: Install required
