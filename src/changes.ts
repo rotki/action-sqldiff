@@ -11,12 +11,9 @@ import type { ComparedDatabases, FileVersions } from './types';
 import type { PullRequest } from '@octokit/webhooks-types/schema';
 
 function cloneRepo(target: 'head' | 'base', url: string, ref: string, sha: string): string {
-  let cloneUrl = url;
+  const cloneUrl = url;
 
   validateGitUrl(cloneUrl);
-
-  if (cloneUrl.startsWith('git'))
-    cloneUrl = cloneUrl.replace('git', 'https');
 
   const repo = createDBDir(target, 'repo');
   core.info(`cloning ${cloneUrl} @ ${ref} as ${target} to ${repo}`);
@@ -82,8 +79,8 @@ export async function prepareForDiff(): Promise<FileVersions[]> {
   if (files.length === 0)
     return [];
 
-  const baseRepoUrl = base.repo.git_url;
-  const headRepoUrl = head.repo?.git_url;
+  const baseRepoUrl = base.repo.clone_url;
+  const headRepoUrl = head.repo?.clone_url;
 
   if (!headRepoUrl)
     throw new Error(`head repo url is missing ${headRepoUrl}`);

@@ -36628,10 +36628,8 @@ const errors_1 = __nccwpck_require__(4830);
 const utils_1 = __nccwpck_require__(6236);
 const fs_1 = __nccwpck_require__(7682);
 function cloneRepo(target, url, ref, sha) {
-    let cloneUrl = url;
+    const cloneUrl = url;
     (0, utils_1.validateGitUrl)(cloneUrl);
-    if (cloneUrl.startsWith('git'))
-        cloneUrl = cloneUrl.replace('git', 'https');
     const repo = (0, fs_1.createDBDir)(target, 'repo');
     core.info(`cloning ${cloneUrl} @ ${ref} as ${target} to ${repo}`);
     const args = ['clone', cloneUrl, '--branch', ref, '--depth', '1', repo];
@@ -36680,8 +36678,8 @@ async function prepareForDiff() {
     // If there are no changes, no reason to proceed to checkout
     if (files.length === 0)
         return [];
-    const baseRepoUrl = base.repo.git_url;
-    const headRepoUrl = head.repo?.git_url;
+    const baseRepoUrl = base.repo.clone_url;
+    const headRepoUrl = head.repo?.clone_url;
     if (!headRepoUrl)
         throw new Error(`head repo url is missing ${headRepoUrl}`);
     const baseRepo = cloneRepo('base', baseRepoUrl, base.ref, base.sha);
