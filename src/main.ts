@@ -1,10 +1,10 @@
+import type { FileVersionsWithDiff } from './types';
 import * as core from '@actions/core';
 import { prepareForDiff } from './changes';
-import { NotAPullRequestError } from './errors';
-import { sqlDiff } from './sqlcipher';
 import { createComment, deleteComment } from './comment';
+import { NotAPullRequestError } from './errors';
 import { cleanupTmpDir } from './fs';
-import type { FileVersionsWithDiff } from './types';
+import { sqlDiff } from './sqlcipher';
 
 /**
  * The main function for the action.

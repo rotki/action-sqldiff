@@ -1,10 +1,9 @@
-const path = require('node:path');
-const rotki = require('@rotki/eslint-config').default;
-const github = require('eslint-plugin-github');
+import { rotki } from '@rotki/eslint-config';
+import github from 'eslint-plugin-github';
 
-module.exports = rotki({
+export default rotki({
   typescript: {
-    tsconfigPath: path.resolve(__dirname, 'tsconfig.eslint.json'),
+    tsconfigPath: 'tsconfig.json',
   },
   stylistic: true,
   formatters: true,

@@ -1,14 +1,14 @@
-import { execFileSync, execSync } from 'node:child_process';
-import * as path from 'node:path';
-import fs from 'node:fs';
-import * as github from '@actions/github';
-import * as core from '@actions/core';
-import { getFiles, getGithubToken } from './input';
-import { NotAPullRequestError } from './errors';
-import { isDBFile, validateGitUrl } from './utils';
-import { createDBDir } from './fs';
-import type { ComparedDatabases, FileVersions } from './types';
 import type { PullRequest } from '@octokit/webhooks-types/schema';
+import type { ComparedDatabases, FileVersions } from './types';
+import { execFileSync, execSync } from 'node:child_process';
+import fs from 'node:fs';
+import * as path from 'node:path';
+import * as core from '@actions/core';
+import * as github from '@actions/github';
+import { NotAPullRequestError } from './errors';
+import { createDBDir } from './fs';
+import { getFiles, getGithubToken } from './input';
+import { isDBFile, validateGitUrl } from './utils';
 
 function cloneRepo(target: 'head' | 'base', url: string, ref: string, sha: string): string {
   const cloneUrl = url;

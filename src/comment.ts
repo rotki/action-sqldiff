@@ -1,10 +1,10 @@
-import fs from 'node:fs';
-import * as github from '@actions/github';
-import * as core from '@actions/core';
-import { getGithubToken } from './input';
-import { NotAPullRequestError } from './errors';
-import type { FileVersionsWithDiff } from './types';
 import type { GetResponseDataTypeFromEndpointMethod } from '@octokit/types';
+import type { FileVersionsWithDiff } from './types';
+import fs from 'node:fs';
+import * as core from '@actions/core';
+import * as github from '@actions/github';
+import { NotAPullRequestError } from './errors';
+import { getGithubToken } from './input';
 
 const COMMENT_TAG = '<!-- action/sqldiff -->';
 

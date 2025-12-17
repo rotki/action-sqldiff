@@ -1,8 +1,8 @@
 import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { gte } from 'semver';
 import * as core from '@actions/core';
+import { gte } from 'semver';
 import { createDBDir, createDiffDir } from './fs';
 import { getDBKey } from './input';
 

@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as core from '@actions/core';
-import { checkEncryptedDb, checkSQLCipherVersion, dumpDatabase, sqlDiff } from '../src/sqlcipher';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanupTmpDir } from '../src/fs';
+import { checkEncryptedDb, checkSQLCipherVersion, dumpDatabase, sqlDiff } from '../src/sqlcipher';
 
 const encDiff = `
 INSERT INTO data(id,name) VALUES(3,'data_3');
