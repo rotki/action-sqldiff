@@ -1,5 +1,5 @@
 import type { ComparedDatabases, FileVersions } from './types';
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import * as path from 'node:path';
 import * as core from '@actions/core';
@@ -10,37 +10,52 @@ import { getFiles, getGithubToken } from './input';
 import { isDBFile, validateGitUrl } from './utils';
 
 function cloneRepo(target: 'head' | 'base', url: string, ref: string, sha: string): string {
-  const cloneUrl = url;
-
-  validateGitUrl(cloneUrl);
+  validateGitUrl(url);
 
   const repo = createDBDir(target, 'repo');
-  core.info(`cloning ${cloneUrl} @ ${ref} as ${target} to ${repo}`);
-  const args = ['clone', cloneUrl, '--branch', ref, '--depth', '1', repo];
-  const cloneResult = execFileSync('git', args, {
+  core.info(`cloning ${url} @ ${ref} as ${target} to ${repo}`);
+
+  const cloneResult = execFileSync('git', ['clone', url, '--branch', ref, '--depth', '1', repo], {
     encoding: 'utf-8',
-    shell: true,
   });
   if (cloneResult)
     core.info(`clone: ${cloneResult}`);
 
-  const branch = execSync('git branch --show-current', {
+  const branch = execFileSync('git', ['branch', '--show-current'], {
     encoding: 'utf-8',
     cwd: repo,
   }).trim();
 
   if (branch !== ref)
-    throw new Error(`expected ${ref} but found ${branch}`);
+    throw new Error(`expected branch ${ref} but found ${branch}`);
 
-  const commitSha = execSync('git rev-parse HEAD', {
+  const commitSha = execFileSync('git', ['rev-parse', 'HEAD'], {
     encoding: 'utf-8',
     cwd: repo,
   }).trim();
 
-  if (commitSha !== sha)
-    throw new Error(`expected ${sha} but found ${commitSha}`);
+  if (commitSha !== sha) {
+    core.info(`HEAD is ${commitSha}, fetching expected commit ${sha}`);
+    execFileSync('git', ['fetch', 'origin', sha, '--depth=1'], {
+      encoding: 'utf-8',
+      cwd: repo,
+    });
+    execFileSync('git', ['checkout', sha], {
+      encoding: 'utf-8',
+      cwd: repo,
+    });
+  }
 
   return repo;
+}
+
+function collectModifiedDBFiles(data: { filename: string; status: string }[], patterns: string[]): string[] {
+  const files: string[] = [];
+  for (const item of data) {
+    if (item.status === 'modified' && isDBFile(item.filename, patterns))
+      files.push(item.filename);
+  }
+  return files;
 }
 
 export async function prepareForDiff(): Promise<FileVersions[]> {
@@ -54,11 +69,9 @@ export async function prepareForDiff(): Promise<FileVersions[]> {
   core.info(`PR-${number} base: ${base.sha} (${base.ref}) / head: ${head.sha} (${head.ref})`);
 
   const patterns = getFiles();
-  const files: string[] = [];
-  const diffs: Record<string, ComparedDatabases> = {};
-
   core.info(`Preparing to check for modified files matching ${patterns.join(', ')}`);
 
+  const files: string[] = [];
   for await (const response of client.paginate.iterator(
     client.rest.pulls.listFiles,
     {
@@ -66,16 +79,9 @@ export async function prepareForDiff(): Promise<FileVersions[]> {
       pull_number: number,
     },
   )) {
-    for (const item of response.data) {
-      if (item.status !== 'modified')
-        continue;
-
-      if (isDBFile(item.filename, getFiles()))
-        files.push(item.filename);
-    }
+    files.push(...collectModifiedDBFiles(response.data, patterns));
   }
 
-  // If there are no changes, no reason to proceed to checkout
   if (files.length === 0)
     return [];
 
@@ -83,25 +89,23 @@ export async function prepareForDiff(): Promise<FileVersions[]> {
   const headRepoUrl = head.repo?.clone_url;
 
   if (!headRepoUrl)
-    throw new Error(`head repo url is missing ${headRepoUrl}`);
+    throw new Error('head repo clone URL is missing');
 
   const baseRepo = cloneRepo('base', baseRepoUrl, base.ref, base.sha);
   const headRepo = cloneRepo('head', headRepoUrl, head.ref, head.sha);
 
+  const diffs: Record<string, ComparedDatabases> = {};
   for (const file of files) {
     const headFile = path.join(headRepo, file);
     const baseFile = path.join(baseRepo, file);
 
     if (!fs.existsSync(headFile))
-      throw new Error(`${headFile} does not exist`);
+      throw new Error(`head file does not exist: ${headFile}`);
 
     if (!fs.existsSync(baseFile))
-      throw new Error(`${baseFile} does not exist`);
+      throw new Error(`base file does not exist: ${baseFile}`);
 
-    diffs[file] = {
-      head: headFile,
-      base: baseFile,
-    };
+    diffs[file] = { base: baseFile, head: headFile };
   }
 
   return Object.entries(diffs).map(([file, diff]) => ({

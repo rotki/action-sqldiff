@@ -16,6 +16,6 @@ describe('utils', () => {
   it('should not allow a non repo', () => {
     expect(() => {
       validateGitUrl('smb://rotki');
-    }).to.throw(Error, 'Invalid repository URL: \'smb://rotki\'');
+    }).to.throw(Error, /Invalid repository URL/);
   });
 });

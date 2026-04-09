@@ -8,81 +8,86 @@ import { getGithubToken } from './input';
 
 const COMMENT_TAG = '<!-- action/sqldiff -->';
 
-export async function deleteComment() {
-  const client = github.getOctokit(getGithubToken());
+type IssueComment = GetResponseDataTypeFromEndpointMethod<ReturnType<typeof github.getOctokit>['rest']['issues']['listComments']>[0];
+
+function getPullRequestNumber(): number {
   const { context } = github;
   if (!context.payload.pull_request)
     throw new NotAPullRequestError();
+  return context.payload.pull_request.number;
+}
 
-  const { number } = context.payload.pull_request;
-
-  type IssueComment = GetResponseDataTypeFromEndpointMethod<typeof client.rest.issues.listComments>[0];
-
-  let comment: IssueComment | undefined;
+async function findExistingComment(client: ReturnType<typeof github.getOctokit>, number: number): Promise<IssueComment | undefined> {
+  const { context } = github;
   for await (const { data: comments } of client.paginate.iterator(client.rest.issues.listComments, {
     ...context.repo,
     issue_number: number,
   })) {
-    comment = comments.find(comment => comment?.body?.includes(COMMENT_TAG));
-    if (comment)
-      break;
+    const found = comments.find(comment => comment?.body?.includes(COMMENT_TAG));
+    if (found)
+      return found;
   }
+  return undefined;
+}
+
+export async function deleteComment() {
+  const client = github.getOctokit(getGithubToken());
+  const number = getPullRequestNumber();
+  const comment = await findExistingComment(client, number);
 
   if (comment) {
     core.info(`deleting old comment with ${comment.id}`);
     await client.rest.issues.deleteComment({
-      ...context.repo,
-      issue_number: number,
+      ...github.context.repo,
       comment_id: comment.id,
+      issue_number: number,
     });
   }
 }
 
 export async function createComment(diffs: FileVersionsWithDiff[]) {
   const client = github.getOctokit(getGithubToken());
-  const { context } = github;
-  if (!context.payload.pull_request)
-    throw new NotAPullRequestError();
+  const number = getPullRequestNumber();
+  const comment = await findExistingComment(client, number);
 
-  const { number } = context.payload.pull_request;
-
-  type IssueComment = GetResponseDataTypeFromEndpointMethod<typeof client.rest.issues.listComments>[0];
-
-  let comment: IssueComment | undefined;
-  for await (const { data: comments } of client.paginate.iterator(client.rest.issues.listComments, {
-    ...context.repo,
-    issue_number: number,
-  })) {
-    comment = comments.find(comment => comment?.body?.includes(COMMENT_TAG));
-    if (comment)
-      break;
-  }
-
-  let body = `${COMMENT_TAG}\n\n`;
+  const sections: string[] = [];
   for (const diff of diffs) {
     core.debug(`Reading ${diff.diff} for ${diff.file}`);
-    const diffContent = fs.readFileSync(diff.diff, { encoding: 'utf-8' });
-    if (diffContent.trim().length === 0) {
+    const diffContent = fs.readFileSync(diff.diff, { encoding: 'utf-8' }).trim();
+    if (diffContent.length === 0) {
       core.info(`diff for ${diff.file} was empty, skipping`);
       continue;
     }
-    body += `SQL Diff for \`${diff.file}\`\n`;
-    body += `\`\`\`sql\n${diffContent}\n\`\`\`\n`;
+    sections.push(`SQL Diff for \`${diff.file}\`\n\`\`\`sql\n${diffContent}\n\`\`\``);
   }
+
+  if (sections.length === 0) {
+    if (comment) {
+      core.info('all diffs empty, deleting existing comment');
+      await client.rest.issues.deleteComment({
+        ...github.context.repo,
+        comment_id: comment.id,
+        issue_number: number,
+      });
+    }
+    return;
+  }
+
+  const body = `${COMMENT_TAG}\n\n${sections.join('\n')}`;
 
   if (!comment) {
     await client.rest.issues.createComment({
-      ...context.repo,
-      issue_number: number,
+      ...github.context.repo,
       body,
+      issue_number: number,
     });
   }
   else {
     await client.rest.issues.updateComment({
-      ...context.repo,
-      issue_number: number,
-      comment_id: comment.id,
+      ...github.context.repo,
       body,
+      comment_id: comment.id,
+      issue_number: number,
     });
   }
 }

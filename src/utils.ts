@@ -5,7 +5,16 @@ export function isDBFile(filename: string, patterns: string[]): boolean {
 }
 
 export function validateGitUrl(url: string): void {
-  const urlRegex = /^(https?:\/\/|git@[\w.-]+:)[\w#%+./:=@~-]+(.git)?$/;
-  if (!urlRegex.test(url))
-    throw new Error(`Invalid repository URL: '${url}'`);
+  // Allow SSH-style URLs (git@host:path)
+  if (/^git@[\w.-]+:[\w./-]+$/.test(url))
+    return;
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
+      throw new Error(`unsupported protocol: ${parsed.protocol}`);
+  }
+  catch (error) {
+    throw new Error(`Invalid repository URL: '${url}'`, { cause: error });
+  }
 }

@@ -1,10 +1,11 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import * as path from 'node:path';
 
-const TMP_DIR = '/tmp/action-sqldiff/';
+const TMP_DIR = path.join(os.tmpdir(), 'action-sqldiff');
 
 export function cleanupTmpDir() {
-  fs.rmSync(TMP_DIR, { recursive: true, force: true });
+  fs.rmSync(TMP_DIR, { force: true, recursive: true });
 }
 
 export function createTmpDir(): string {

@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as core from '@actions/core';
@@ -7,7 +7,7 @@ import { createDBDir, createDiffDir } from './fs';
 import { getDBKey } from './input';
 
 export function checkSQLCipherVersion(): boolean {
-  const version = execSync('sqlcipher --version', {
+  const version = execFileSync('sqlcipher', ['--version'], {
     encoding: 'utf-8',
   });
 
@@ -22,11 +22,11 @@ export function checkSQLCipherVersion(): boolean {
 
 export function checkEncryptedDb(dbFile: string): boolean {
   if (!fs.existsSync(dbFile))
-    throw new Error(`File does not exist ${dbFile}`);
+    throw new Error(`File does not exist: ${dbFile}`);
 
   try {
-    execSync(`head -c 16 ${dbFile} | grep -q "SQLite format 3"`, { encoding: 'utf-8' });
-    return false;
+    const header = execFileSync('head', ['-c', '16', dbFile]);
+    return !header.includes('SQLite format 3');
   }
   catch {
     return true;
@@ -34,18 +34,22 @@ export function checkEncryptedDb(dbFile: string): boolean {
 }
 
 export function dumpDatabase(dbFile: string, type: 'base' | 'head'): string {
-  const decryptionPragma = checkEncryptedDb(dbFile) ? `PRAGMA key = "${getDBKey()}";` : '';
+  const dbKey = getDBKey();
+  const decryptionPragma = checkEncryptedDb(dbFile) ? `PRAGMA key = "${dbKey}";` : '';
   const diffDir = createDBDir(type, 'dump');
   const tmpDb = path.join(diffDir, path.basename(dbFile));
 
-  execSync(`
-  echo "
-    ${decryptionPragma}
-    ATTACH DATABASE '${tmpDb}' AS plaintext KEY '';
-    SELECT sqlcipher_export('plaintext');
-    DETACH DATABASE plaintext;
-  " | sqlcipher ${dbFile}
-  `, { encoding: 'utf-8' });
+  const sql = [
+    decryptionPragma,
+    `ATTACH DATABASE '${tmpDb}' AS plaintext KEY '';`,
+    `SELECT sqlcipher_export('plaintext');`,
+    `DETACH DATABASE plaintext;`,
+  ].join('\n');
+
+  execFileSync('sqlcipher', [dbFile], {
+    encoding: 'utf-8',
+    input: sql,
+  });
 
   return tmpDb;
 }
@@ -57,7 +61,10 @@ export function sqlDiff(baseDB: string, headDb: string): string {
   const diffs = createDiffDir();
   const diffFile = path.join(diffs, `${path.basename(base)}.diff`);
 
-  execSync(`sqldiff --primarykey ${base} ${head} >> ${diffFile}`, { encoding: 'utf-8' });
+  const result = execFileSync('sqldiff', ['--primarykey', base, head], {
+    encoding: 'utf-8',
+  });
+  fs.writeFileSync(diffFile, result);
   fs.rmSync(base);
   fs.rmSync(head);
   return diffFile;

@@ -32,10 +32,11 @@ import require$$1$5 from 'node:dns';
 import require$$5$3 from 'string_decoder';
 import 'child_process';
 import 'timers';
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import * as fs$1 from 'node:fs';
 import fs__default from 'node:fs';
 import * as path from 'node:path';
+import os$1 from 'node:os';
 
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -33031,9 +33032,9 @@ class NotAPullRequestError extends Error {
     }
 }
 
-const TMP_DIR = '/tmp/action-sqldiff/';
+const TMP_DIR = path.join(os$1.tmpdir(), 'action-sqldiff');
 function cleanupTmpDir() {
-    fs__default.rmSync(TMP_DIR, { recursive: true, force: true });
+    fs__default.rmSync(TMP_DIR, { force: true, recursive: true });
 }
 function createTmpDir() {
     if (!fs__default.existsSync(TMP_DIR))
@@ -37199,36 +37200,58 @@ function isDBFile(filename, patterns) {
     return mm.isMatch(filename, patterns, { basename: true });
 }
 function validateGitUrl(url) {
-    const urlRegex = /^(https?:\/\/|git@[\w.-]+:)[\w#%+./:=@~-]+(.git)?$/;
-    if (!urlRegex.test(url))
-        throw new Error(`Invalid repository URL: '${url}'`);
+    // Allow SSH-style URLs (git@host:path)
+    if (/^git@[\w.-]+:[\w./-]+$/.test(url))
+        return;
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
+            throw new Error(`unsupported protocol: ${parsed.protocol}`);
+    }
+    catch (error) {
+        throw new Error(`Invalid repository URL: '${url}'`, { cause: error });
+    }
 }
 
 function cloneRepo(target, url, ref, sha) {
-    const cloneUrl = url;
-    validateGitUrl(cloneUrl);
+    validateGitUrl(url);
     const repo = createDBDir(target, 'repo');
-    info(`cloning ${cloneUrl} @ ${ref} as ${target} to ${repo}`);
-    const args = ['clone', cloneUrl, '--branch', ref, '--depth', '1', repo];
-    const cloneResult = execFileSync('git', args, {
+    info(`cloning ${url} @ ${ref} as ${target} to ${repo}`);
+    const cloneResult = execFileSync('git', ['clone', url, '--branch', ref, '--depth', '1', repo], {
         encoding: 'utf-8',
-        shell: true,
     });
     if (cloneResult)
         info(`clone: ${cloneResult}`);
-    const branch = execSync('git branch --show-current', {
+    const branch = execFileSync('git', ['branch', '--show-current'], {
         encoding: 'utf-8',
         cwd: repo,
     }).trim();
     if (branch !== ref)
-        throw new Error(`expected ${ref} but found ${branch}`);
-    const commitSha = execSync('git rev-parse HEAD', {
+        throw new Error(`expected branch ${ref} but found ${branch}`);
+    const commitSha = execFileSync('git', ['rev-parse', 'HEAD'], {
         encoding: 'utf-8',
         cwd: repo,
     }).trim();
-    if (commitSha !== sha)
-        throw new Error(`expected ${sha} but found ${commitSha}`);
+    if (commitSha !== sha) {
+        info(`HEAD is ${commitSha}, fetching expected commit ${sha}`);
+        execFileSync('git', ['fetch', 'origin', sha, '--depth=1'], {
+            encoding: 'utf-8',
+            cwd: repo,
+        });
+        execFileSync('git', ['checkout', sha], {
+            encoding: 'utf-8',
+            cwd: repo,
+        });
+    }
     return repo;
+}
+function collectModifiedDBFiles(data, patterns) {
+    const files = [];
+    for (const item of data) {
+        if (item.status === 'modified' && isDBFile(item.filename, patterns))
+            files.push(item.filename);
+    }
+    return files;
 }
 async function prepareForDiff() {
     const client = getOctokit(getGithubToken());
@@ -37239,40 +37262,31 @@ async function prepareForDiff() {
     const { number, base, head } = pr;
     info(`PR-${number} base: ${base.sha} (${base.ref}) / head: ${head.sha} (${head.ref})`);
     const patterns = getFiles();
-    const files = [];
-    const diffs = {};
     info(`Preparing to check for modified files matching ${patterns.join(', ')}`);
+    const files = [];
     for await (const response of client.paginate.iterator(client.rest.pulls.listFiles, {
         ...context.repo,
         pull_number: number,
     })) {
-        for (const item of response.data) {
-            if (item.status !== 'modified')
-                continue;
-            if (isDBFile(item.filename, getFiles()))
-                files.push(item.filename);
-        }
+        files.push(...collectModifiedDBFiles(response.data, patterns));
     }
-    // If there are no changes, no reason to proceed to checkout
     if (files.length === 0)
         return [];
     const baseRepoUrl = base.repo.clone_url;
     const headRepoUrl = head.repo?.clone_url;
     if (!headRepoUrl)
-        throw new Error(`head repo url is missing ${headRepoUrl}`);
+        throw new Error('head repo clone URL is missing');
     const baseRepo = cloneRepo('base', baseRepoUrl, base.ref, base.sha);
     const headRepo = cloneRepo('head', headRepoUrl, head.ref, head.sha);
+    const diffs = {};
     for (const file of files) {
         const headFile = path.join(headRepo, file);
         const baseFile = path.join(baseRepo, file);
         if (!fs__default.existsSync(headFile))
-            throw new Error(`${headFile} does not exist`);
+            throw new Error(`head file does not exist: ${headFile}`);
         if (!fs__default.existsSync(baseFile))
-            throw new Error(`${baseFile} does not exist`);
-        diffs[file] = {
-            head: headFile,
-            base: baseFile,
-        };
+            throw new Error(`base file does not exist: ${baseFile}`);
+        diffs[file] = { base: baseFile, head: headFile };
     }
     return Object.entries(diffs).map(([file, diff]) => ({
         file,
@@ -37281,69 +37295,76 @@ async function prepareForDiff() {
 }
 
 const COMMENT_TAG = '<!-- action/sqldiff -->';
-async function deleteComment() {
-    const client = getOctokit(getGithubToken());
+function getPullRequestNumber() {
     const { context } = github;
     if (!context.payload.pull_request)
         throw new NotAPullRequestError();
-    const { number } = context.payload.pull_request;
-    let comment;
+    return context.payload.pull_request.number;
+}
+async function findExistingComment(client, number) {
+    const { context } = github;
     for await (const { data: comments } of client.paginate.iterator(client.rest.issues.listComments, {
         ...context.repo,
         issue_number: number,
     })) {
-        comment = comments.find(comment => comment?.body?.includes(COMMENT_TAG));
-        if (comment)
-            break;
+        const found = comments.find(comment => comment?.body?.includes(COMMENT_TAG));
+        if (found)
+            return found;
     }
+    return undefined;
+}
+async function deleteComment() {
+    const client = getOctokit(getGithubToken());
+    const number = getPullRequestNumber();
+    const comment = await findExistingComment(client, number);
     if (comment) {
         info(`deleting old comment with ${comment.id}`);
         await client.rest.issues.deleteComment({
             ...context.repo,
-            issue_number: number,
             comment_id: comment.id,
+            issue_number: number,
         });
     }
 }
 async function createComment(diffs) {
     const client = getOctokit(getGithubToken());
-    const { context } = github;
-    if (!context.payload.pull_request)
-        throw new NotAPullRequestError();
-    const { number } = context.payload.pull_request;
-    let comment;
-    for await (const { data: comments } of client.paginate.iterator(client.rest.issues.listComments, {
-        ...context.repo,
-        issue_number: number,
-    })) {
-        comment = comments.find(comment => comment?.body?.includes(COMMENT_TAG));
-        if (comment)
-            break;
-    }
-    let body = `${COMMENT_TAG}\n\n`;
+    const number = getPullRequestNumber();
+    const comment = await findExistingComment(client, number);
+    const sections = [];
     for (const diff of diffs) {
         debug(`Reading ${diff.diff} for ${diff.file}`);
-        const diffContent = fs__default.readFileSync(diff.diff, { encoding: 'utf-8' });
-        if (diffContent.trim().length === 0) {
+        const diffContent = fs__default.readFileSync(diff.diff, { encoding: 'utf-8' }).trim();
+        if (diffContent.length === 0) {
             info(`diff for ${diff.file} was empty, skipping`);
             continue;
         }
-        body += `SQL Diff for \`${diff.file}\`\n`;
-        body += `\`\`\`sql\n${diffContent}\n\`\`\`\n`;
+        sections.push(`SQL Diff for \`${diff.file}\`\n\`\`\`sql\n${diffContent}\n\`\`\``);
     }
+    if (sections.length === 0) {
+        if (comment) {
+            info('all diffs empty, deleting existing comment');
+            await client.rest.issues.deleteComment({
+                ...context.repo,
+                comment_id: comment.id,
+                issue_number: number,
+            });
+        }
+        return;
+    }
+    const body = `${COMMENT_TAG}\n\n${sections.join('\n')}`;
     if (!comment) {
         await client.rest.issues.createComment({
             ...context.repo,
-            issue_number: number,
             body,
+            issue_number: number,
         });
     }
     else {
         await client.rest.issues.updateComment({
             ...context.repo,
-            issue_number: number,
-            comment_id: comment.id,
             body,
+            comment_id: comment.id,
+            issue_number: number,
         });
     }
 }
@@ -40070,27 +40091,30 @@ requireSemver();
 
 function checkEncryptedDb(dbFile) {
     if (!fs$1.existsSync(dbFile))
-        throw new Error(`File does not exist ${dbFile}`);
+        throw new Error(`File does not exist: ${dbFile}`);
     try {
-        execSync(`head -c 16 ${dbFile} | grep -q "SQLite format 3"`, { encoding: 'utf-8' });
-        return false;
+        const header = execFileSync('head', ['-c', '16', dbFile]);
+        return !header.includes('SQLite format 3');
     }
     catch {
         return true;
     }
 }
 function dumpDatabase(dbFile, type) {
-    const decryptionPragma = checkEncryptedDb(dbFile) ? `PRAGMA key = "${getDBKey()}";` : '';
+    const dbKey = getDBKey();
+    const decryptionPragma = checkEncryptedDb(dbFile) ? `PRAGMA key = "${dbKey}";` : '';
     const diffDir = createDBDir(type, 'dump');
     const tmpDb = path.join(diffDir, path.basename(dbFile));
-    execSync(`
-  echo "
-    ${decryptionPragma}
-    ATTACH DATABASE '${tmpDb}' AS plaintext KEY '';
-    SELECT sqlcipher_export('plaintext');
-    DETACH DATABASE plaintext;
-  " | sqlcipher ${dbFile}
-  `, { encoding: 'utf-8' });
+    const sql = [
+        decryptionPragma,
+        `ATTACH DATABASE '${tmpDb}' AS plaintext KEY '';`,
+        `SELECT sqlcipher_export('plaintext');`,
+        `DETACH DATABASE plaintext;`,
+    ].join('\n');
+    execFileSync('sqlcipher', [dbFile], {
+        encoding: 'utf-8',
+        input: sql,
+    });
     return tmpDb;
 }
 function sqlDiff(baseDB, headDb) {
@@ -40098,40 +40122,33 @@ function sqlDiff(baseDB, headDb) {
     const head = dumpDatabase(headDb, 'head');
     const diffs = createDiffDir();
     const diffFile = path.join(diffs, `${path.basename(base)}.diff`);
-    execSync(`sqldiff --primarykey ${base} ${head} >> ${diffFile}`, { encoding: 'utf-8' });
+    const result = execFileSync('sqldiff', ['--primarykey', base, head], {
+        encoding: 'utf-8',
+    });
+    fs$1.writeFileSync(diffFile, result);
     fs$1.rmSync(base);
     fs$1.rmSync(head);
     return diffFile;
 }
 
-/**
- * The main function for the action.
- * @returns {Promise<void>} Resolves when the action is complete.
- */
 async function run() {
     try {
         const modified = await prepareForDiff();
-        if (!modified)
-            return;
         if (modified.length === 0) {
             info('No modified files matching the pattern');
             await deleteComment();
             return;
         }
         info(`Matched ${modified.length} files to pattern`);
-        const diffs = [];
-        for (const { base, file, head } of modified) {
-            diffs.push({
-                file,
-                diff: sqlDiff(base, head),
-            });
-        }
+        const diffs = modified.map(({ base, file, head }) => ({
+            diff: sqlDiff(base, head),
+            file,
+        }));
         await createComment(diffs);
     }
     catch (error) {
         if (error instanceof NotAPullRequestError)
             info('Not a pull request');
-        // Fail the workflow run if an error occurs
         else if (error instanceof Error)
             setFailed(error.message);
     }
@@ -40140,9 +40157,5 @@ async function run() {
     }
 }
 
-/**
- * The entrypoint for the action.
- */
-// eslint-disable-next-line @typescript-eslint/no-floating-promises
-run();
+await run();
 //# sourceMappingURL=index.js.map
