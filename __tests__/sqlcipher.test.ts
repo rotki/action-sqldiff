@@ -1,8 +1,17 @@
 import fs from 'node:fs';
-import * as core from '@actions/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanupTmpDir } from '../src/fs';
 import { checkEncryptedDb, checkSQLCipherVersion, dumpDatabase, sqlDiff } from '../src/sqlcipher';
+
+vi.mock('@actions/core', () => ({
+  getInput: (x: string) => {
+    if (x === 'db_key')
+      return '123';
+    return '';
+  },
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
 
 const encDiff = `
 INSERT INTO data(id,name) VALUES(3,'data_3');
@@ -18,13 +27,8 @@ UPDATE sqlite_sequence SET seq=4 WHERE rowid=1;
 describe('sqlcipher', () => {
   beforeEach(() => {
     cleanupTmpDir();
-    vi.resetAllMocks();
-    vi.spyOn(core, 'getInput').mockImplementation((x) => {
-      if (x === 'db_key')
-        return '123';
-      return '';
-    });
   });
+
   it('check version', () => {
     expect(checkSQLCipherVersion()).toBe(true);
   });

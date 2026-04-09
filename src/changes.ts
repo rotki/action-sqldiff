@@ -1,4 +1,3 @@
-import type { PullRequest } from '@octokit/webhooks-types/schema';
 import type { ComparedDatabases, FileVersions } from './types';
 import { execFileSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -50,7 +49,8 @@ export async function prepareForDiff(): Promise<FileVersions[]> {
   if (!context.payload.pull_request)
     throw new NotAPullRequestError();
 
-  const { number, base, head } = context.payload.pull_request as PullRequest;
+  const pr = context.payload.pull_request;
+  const { number, base, head } = pr;
   core.info(`PR-${number} base: ${base.sha} (${base.ref}) / head: ${head.sha} (${head.ref})`);
 
   const patterns = getFiles();
