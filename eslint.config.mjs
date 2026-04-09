@@ -1,5 +1,4 @@
-import { rotki } from '@rotki/eslint-config';
-import github from 'eslint-plugin-github';
+import rotki from '@rotki/eslint-config';
 
 export default rotki({
   typescript: {
@@ -8,14 +7,8 @@ export default rotki({
   stylistic: true,
   formatters: true,
 }, {
-  files: ['src/**/*.ts'],
-  plugins: {
-    github,
-  },
+  files: ['**/*.yml'],
   rules: {
-    'github/array-foreach': 'error',
-    'github/no-implicit-buggy-globals': 'error',
-    'github/no-then': 'error',
-    'github/no-dynamic-script-tag': 'error',
+    '@stylistic/spaced-comment': 'off',
   },
 });
