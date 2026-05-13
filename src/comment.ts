@@ -7,6 +7,12 @@ import { NotAPullRequestError } from './errors';
 import { getGithubToken } from './input';
 
 const COMMENT_TAG = '<!-- action/sqldiff -->';
+const MAX_COMMENT_BODY = 60000;
+
+export function fenceFor(content: string): string {
+  const longest = (content.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
+  return '`'.repeat(Math.max(3, longest + 1));
+}
 
 type IssueComment = GetResponseDataTypeFromEndpointMethod<ReturnType<typeof github.getOctokit>['rest']['issues']['listComments']>[0];
 
@@ -58,7 +64,9 @@ export async function createComment(diffs: FileVersionsWithDiff[]) {
       core.info(`diff for ${diff.file} was empty, skipping`);
       continue;
     }
-    sections.push(`SQL Diff for \`${diff.file}\`\n\`\`\`sql\n${diffContent}\n\`\`\``);
+    const fence = fenceFor(diffContent);
+    const fileLabel = diff.file.replace(/`/g, '');
+    sections.push(`SQL Diff for \`${fileLabel}\`\n${fence}sql\n${diffContent}\n${fence}`);
   }
 
   if (sections.length === 0) {
@@ -73,7 +81,10 @@ export async function createComment(diffs: FileVersionsWithDiff[]) {
     return;
   }
 
-  const body = `${COMMENT_TAG}\n\n${sections.join('\n')}`;
+  const rawBody = `${COMMENT_TAG}\n\n${sections.join('\n')}`;
+  const body = rawBody.length > MAX_COMMENT_BODY
+    ? `${rawBody.slice(0, MAX_COMMENT_BODY)}\n\n_…diff truncated (${rawBody.length - MAX_COMMENT_BODY} bytes omitted)_`
+    : rawBody;
 
   if (!comment) {
     await client.rest.issues.createComment({

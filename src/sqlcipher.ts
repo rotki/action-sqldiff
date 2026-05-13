@@ -1,10 +1,15 @@
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as core from '@actions/core';
 import { gte } from 'semver';
 import { createDBDir, createDiffDir } from './fs';
 import { getDBKey } from './input';
+
+export function quoteSqlString(value: string): string {
+  return `'${value.replace(/'/g, '\'\'')}'`;
+}
 
 export function checkSQLCipherVersion(): boolean {
   const version = execFileSync('sqlcipher', ['--version'], {
@@ -35,13 +40,13 @@ export function checkEncryptedDb(dbFile: string): boolean {
 
 export function dumpDatabase(dbFile: string, type: 'base' | 'head'): string {
   const dbKey = getDBKey();
-  const decryptionPragma = checkEncryptedDb(dbFile) ? `PRAGMA key = "${dbKey}";` : '';
+  const decryptionPragma = checkEncryptedDb(dbFile) ? `PRAGMA key = ${quoteSqlString(dbKey)};` : '';
   const diffDir = createDBDir(type, 'dump');
-  const tmpDb = path.join(diffDir, path.basename(dbFile));
+  const tmpDb = path.join(diffDir, `${randomUUID()}.db`);
 
   const sql = [
     decryptionPragma,
-    `ATTACH DATABASE '${tmpDb}' AS plaintext KEY '';`,
+    `ATTACH DATABASE ${quoteSqlString(tmpDb)} AS plaintext KEY '';`,
     `SELECT sqlcipher_export('plaintext');`,
     `DETACH DATABASE plaintext;`,
   ].join('\n');

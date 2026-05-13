@@ -11,7 +11,7 @@ export function validateGitUrl(url: string): void {
 
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
+    if (parsed.protocol !== 'https:')
       throw new Error(`unsupported protocol: ${parsed.protocol}`);
   }
   catch (error) {

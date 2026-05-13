@@ -1,6 +1,6 @@
 import type { ComparedDatabases, FileVersions } from './types';
 import { execFileSync } from 'node:child_process';
-import fs from 'node:fs';
+import fs, { lstatSync, realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import * as core from '@actions/core';
 import * as github from '@actions/github';
@@ -49,6 +49,27 @@ function cloneRepo(target: 'head' | 'base', url: string, ref: string, sha: strin
   return repo;
 }
 
+function assertInsideRepo(target: string, repoRoot: string, label: string): void {
+  const stat = lstatSync(target);
+  if (stat.isSymbolicLink())
+    throw new Error(`refusing to follow symlink for ${label}: ${target}`);
+  const resolved = realpathSync(target);
+  const resolvedRoot = realpathSync(repoRoot);
+  if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep))
+    throw new Error(`${label} resolves outside the cloned tree: ${resolved}`);
+}
+
+function resolveCloneUrls(
+  base: { repo?: { clone_url?: string } | null },
+  head: { repo?: { clone_url?: string } | null },
+): { baseRepoUrl: string; headRepoUrl: string } {
+  const baseRepoUrl = base.repo?.clone_url;
+  const headRepoUrl = head.repo?.clone_url;
+  if (!baseRepoUrl || !headRepoUrl)
+    throw new Error(`repo clone URL is missing (base=${!!baseRepoUrl}, head=${!!headRepoUrl})`);
+  return { baseRepoUrl, headRepoUrl };
+}
+
 function collectModifiedDBFiles(data: { filename: string; status: string }[], patterns: string[]): string[] {
   const files: string[] = [];
   for (const item of data) {
@@ -85,11 +106,7 @@ export async function prepareForDiff(): Promise<FileVersions[]> {
   if (files.length === 0)
     return [];
 
-  const baseRepoUrl = base.repo.clone_url;
-  const headRepoUrl = head.repo?.clone_url;
-
-  if (!headRepoUrl)
-    throw new Error('head repo clone URL is missing');
+  const { baseRepoUrl, headRepoUrl } = resolveCloneUrls(base, head);
 
   const baseRepo = cloneRepo('base', baseRepoUrl, base.ref, base.sha);
   const headRepo = cloneRepo('head', headRepoUrl, head.ref, head.sha);
@@ -104,6 +121,9 @@ export async function prepareForDiff(): Promise<FileVersions[]> {
 
     if (!fs.existsSync(baseFile))
       throw new Error(`base file does not exist: ${baseFile}`);
+
+    assertInsideRepo(headFile, headRepo, 'head file');
+    assertInsideRepo(baseFile, baseRepo, 'base file');
 
     diffs[file] = { base: baseFile, head: headFile };
   }

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanupTmpDir } from '../src/fs';
-import { checkEncryptedDb, checkSQLCipherVersion, dumpDatabase, sqlDiff } from '../src/sqlcipher';
+import { checkEncryptedDb, checkSQLCipherVersion, dumpDatabase, quoteSqlString, sqlDiff } from '../src/sqlcipher';
 
 vi.mock('@actions/core', () => ({
   getInput: (x: string) => {
@@ -61,6 +61,12 @@ describe('sqlcipher', () => {
     const diffContent = fs.readFileSync(diff, { encoding: 'utf-8' }).trim();
     expect(diffContent).toEqual(encDiff);
     fs.rmSync(diff);
+  });
+
+  it('escapes single quotes in SQL strings', () => {
+    expect(quoteSqlString('plain')).toBe('\'plain\'');
+    expect(quoteSqlString('it\'s')).toBe('\'it\'\'s\'');
+    expect(quoteSqlString('\'; DROP TABLE x; --')).toBe('\'\'\'; DROP TABLE x; --\'');
   });
 
   it('creates a normal db diff', () => {

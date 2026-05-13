@@ -34,9 +34,10 @@ import 'child_process';
 import 'timers';
 import { execFileSync } from 'node:child_process';
 import * as fs$1 from 'node:fs';
-import fs__default from 'node:fs';
+import fs__default, { lstatSync, realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import os$1 from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -34603,6 +34604,8 @@ function requireConstants$1 () {
 	const WIN_SLASH = '\\\\/';
 	const WIN_NO_SLASH = `[^${WIN_SLASH}]`;
 
+	const DEFAULT_MAX_EXTGLOB_RECURSION = 0;
+
 	/**
 	 * Posix glob regex
 	 */
@@ -34666,6 +34669,7 @@ function requireConstants$1 () {
 	 */
 
 	const POSIX_REGEX_SOURCE = {
+	  __proto__: null,
 	  alnum: 'a-zA-Z0-9',
 	  alpha: 'a-zA-Z',
 	  ascii: '\\x00-\\x7F',
@@ -34683,6 +34687,7 @@ function requireConstants$1 () {
 	};
 
 	constants$1 = {
+	  DEFAULT_MAX_EXTGLOB_RECURSION,
 	  MAX_LENGTH: 1024 * 64,
 	  POSIX_REGEX_SOURCE,
 
@@ -34696,6 +34701,7 @@ function requireConstants$1 () {
 
 	  // Replace globs with equivalent patterns to reduce parsing time.
 	  REPLACEMENTS: {
+	    __proto__: null,
 	    '***': '*',
 	    '**/**': '**',
 	    '**/**/**': '**'
@@ -35303,6 +35309,277 @@ function requireParse$1 () {
 	  return `Missing ${type}: "${char}" - use "\\\\${char}" to match literal characters`;
 	};
 
+	const splitTopLevel = input => {
+	  const parts = [];
+	  let bracket = 0;
+	  let paren = 0;
+	  let quote = 0;
+	  let value = '';
+	  let escaped = false;
+
+	  for (const ch of input) {
+	    if (escaped === true) {
+	      value += ch;
+	      escaped = false;
+	      continue;
+	    }
+
+	    if (ch === '\\') {
+	      value += ch;
+	      escaped = true;
+	      continue;
+	    }
+
+	    if (ch === '"') {
+	      quote = quote === 1 ? 0 : 1;
+	      value += ch;
+	      continue;
+	    }
+
+	    if (quote === 0) {
+	      if (ch === '[') {
+	        bracket++;
+	      } else if (ch === ']' && bracket > 0) {
+	        bracket--;
+	      } else if (bracket === 0) {
+	        if (ch === '(') {
+	          paren++;
+	        } else if (ch === ')' && paren > 0) {
+	          paren--;
+	        } else if (ch === '|' && paren === 0) {
+	          parts.push(value);
+	          value = '';
+	          continue;
+	        }
+	      }
+	    }
+
+	    value += ch;
+	  }
+
+	  parts.push(value);
+	  return parts;
+	};
+
+	const isPlainBranch = branch => {
+	  let escaped = false;
+
+	  for (const ch of branch) {
+	    if (escaped === true) {
+	      escaped = false;
+	      continue;
+	    }
+
+	    if (ch === '\\') {
+	      escaped = true;
+	      continue;
+	    }
+
+	    if (/[?*+@!()[\]{}]/.test(ch)) {
+	      return false;
+	    }
+	  }
+
+	  return true;
+	};
+
+	const normalizeSimpleBranch = branch => {
+	  let value = branch.trim();
+	  let changed = true;
+
+	  while (changed === true) {
+	    changed = false;
+
+	    if (/^@\([^\\()[\]{}|]+\)$/.test(value)) {
+	      value = value.slice(2, -1);
+	      changed = true;
+	    }
+	  }
+
+	  if (!isPlainBranch(value)) {
+	    return;
+	  }
+
+	  return value.replace(/\\(.)/g, '$1');
+	};
+
+	const hasRepeatedCharPrefixOverlap = branches => {
+	  const values = branches.map(normalizeSimpleBranch).filter(Boolean);
+
+	  for (let i = 0; i < values.length; i++) {
+	    for (let j = i + 1; j < values.length; j++) {
+	      const a = values[i];
+	      const b = values[j];
+	      const char = a[0];
+
+	      if (!char || a !== char.repeat(a.length) || b !== char.repeat(b.length)) {
+	        continue;
+	      }
+
+	      if (a === b || a.startsWith(b) || b.startsWith(a)) {
+	        return true;
+	      }
+	    }
+	  }
+
+	  return false;
+	};
+
+	const parseRepeatedExtglob = (pattern, requireEnd = true) => {
+	  if ((pattern[0] !== '+' && pattern[0] !== '*') || pattern[1] !== '(') {
+	    return;
+	  }
+
+	  let bracket = 0;
+	  let paren = 0;
+	  let quote = 0;
+	  let escaped = false;
+
+	  for (let i = 1; i < pattern.length; i++) {
+	    const ch = pattern[i];
+
+	    if (escaped === true) {
+	      escaped = false;
+	      continue;
+	    }
+
+	    if (ch === '\\') {
+	      escaped = true;
+	      continue;
+	    }
+
+	    if (ch === '"') {
+	      quote = quote === 1 ? 0 : 1;
+	      continue;
+	    }
+
+	    if (quote === 1) {
+	      continue;
+	    }
+
+	    if (ch === '[') {
+	      bracket++;
+	      continue;
+	    }
+
+	    if (ch === ']' && bracket > 0) {
+	      bracket--;
+	      continue;
+	    }
+
+	    if (bracket > 0) {
+	      continue;
+	    }
+
+	    if (ch === '(') {
+	      paren++;
+	      continue;
+	    }
+
+	    if (ch === ')') {
+	      paren--;
+
+	      if (paren === 0) {
+	        if (requireEnd === true && i !== pattern.length - 1) {
+	          return;
+	        }
+
+	        return {
+	          type: pattern[0],
+	          body: pattern.slice(2, i),
+	          end: i
+	        };
+	      }
+	    }
+	  }
+	};
+
+	const getStarExtglobSequenceOutput = pattern => {
+	  let index = 0;
+	  const chars = [];
+
+	  while (index < pattern.length) {
+	    const match = parseRepeatedExtglob(pattern.slice(index), false);
+
+	    if (!match || match.type !== '*') {
+	      return;
+	    }
+
+	    const branches = splitTopLevel(match.body).map(branch => branch.trim());
+	    if (branches.length !== 1) {
+	      return;
+	    }
+
+	    const branch = normalizeSimpleBranch(branches[0]);
+	    if (!branch || branch.length !== 1) {
+	      return;
+	    }
+
+	    chars.push(branch);
+	    index += match.end + 1;
+	  }
+
+	  if (chars.length < 1) {
+	    return;
+	  }
+
+	  const source = chars.length === 1
+	    ? utils.escapeRegex(chars[0])
+	    : `[${chars.map(ch => utils.escapeRegex(ch)).join('')}]`;
+
+	  return `${source}*`;
+	};
+
+	const repeatedExtglobRecursion = pattern => {
+	  let depth = 0;
+	  let value = pattern.trim();
+	  let match = parseRepeatedExtglob(value);
+
+	  while (match) {
+	    depth++;
+	    value = match.body.trim();
+	    match = parseRepeatedExtglob(value);
+	  }
+
+	  return depth;
+	};
+
+	const analyzeRepeatedExtglob = (body, options) => {
+	  if (options.maxExtglobRecursion === false) {
+	    return { risky: false };
+	  }
+
+	  const max =
+	    typeof options.maxExtglobRecursion === 'number'
+	      ? options.maxExtglobRecursion
+	      : constants.DEFAULT_MAX_EXTGLOB_RECURSION;
+
+	  const branches = splitTopLevel(body).map(branch => branch.trim());
+
+	  if (branches.length > 1) {
+	    if (
+	      branches.some(branch => branch === '') ||
+	      branches.some(branch => /^[*?]+$/.test(branch)) ||
+	      hasRepeatedCharPrefixOverlap(branches)
+	    ) {
+	      return { risky: true };
+	    }
+	  }
+
+	  for (const branch of branches) {
+	    const safeOutput = getStarExtglobSequenceOutput(branch);
+	    if (safeOutput) {
+	      return { risky: true, safeOutput };
+	    }
+
+	    if (repeatedExtglobRecursion(branch) > max) {
+	      return { risky: true };
+	    }
+	  }
+
+	  return { risky: false };
+	};
+
 	/**
 	 * Parse the given input string.
 	 * @param {String} input
@@ -35484,6 +35761,8 @@ function requireParse$1 () {
 	    token.prev = prev;
 	    token.parens = state.parens;
 	    token.output = state.output;
+	    token.startIndex = state.index;
+	    token.tokensIndex = tokens.length;
 	    const output = (opts.capture ? '(' : '') + token.open;
 
 	    increment('parens');
@@ -35493,6 +35772,34 @@ function requireParse$1 () {
 	  };
 
 	  const extglobClose = token => {
+	    const literal = input.slice(token.startIndex, state.index + 1);
+	    const body = input.slice(token.startIndex + 2, state.index);
+	    const analysis = analyzeRepeatedExtglob(body, opts);
+
+	    if ((token.type === 'plus' || token.type === 'star') && analysis.risky) {
+	      const safeOutput = analysis.safeOutput
+	        ? (token.output ? '' : ONE_CHAR) + (opts.capture ? `(${analysis.safeOutput})` : analysis.safeOutput)
+	        : undefined;
+	      const open = tokens[token.tokensIndex];
+
+	      open.type = 'text';
+	      open.value = literal;
+	      open.output = safeOutput || utils.escapeRegex(literal);
+
+	      for (let i = token.tokensIndex + 1; i < tokens.length; i++) {
+	        tokens[i].value = '';
+	        tokens[i].output = '';
+	        delete tokens[i].suffix;
+	      }
+
+	      state.output = token.output + open.output;
+	      state.backtrack = true;
+
+	      push({ type: 'paren', extglob: true, value, output: '' });
+	      decrement('parens');
+	      return;
+	    }
+
 	    let output = token.close + (opts.capture ? ')' : '');
 	    let rest;
 
@@ -37205,7 +37512,7 @@ function validateGitUrl(url) {
         return;
     try {
         const parsed = new URL(url);
-        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
+        if (parsed.protocol !== 'https:')
             throw new Error(`unsupported protocol: ${parsed.protocol}`);
     }
     catch (error) {
@@ -37245,6 +37552,22 @@ function cloneRepo(target, url, ref, sha) {
     }
     return repo;
 }
+function assertInsideRepo(target, repoRoot, label) {
+    const stat = lstatSync(target);
+    if (stat.isSymbolicLink())
+        throw new Error(`refusing to follow symlink for ${label}: ${target}`);
+    const resolved = realpathSync(target);
+    const resolvedRoot = realpathSync(repoRoot);
+    if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep))
+        throw new Error(`${label} resolves outside the cloned tree: ${resolved}`);
+}
+function resolveCloneUrls(base, head) {
+    const baseRepoUrl = base.repo?.clone_url;
+    const headRepoUrl = head.repo?.clone_url;
+    if (!baseRepoUrl || !headRepoUrl)
+        throw new Error(`repo clone URL is missing (base=${!!baseRepoUrl}, head=${!!headRepoUrl})`);
+    return { baseRepoUrl, headRepoUrl };
+}
 function collectModifiedDBFiles(data, patterns) {
     const files = [];
     for (const item of data) {
@@ -37272,10 +37595,7 @@ async function prepareForDiff() {
     }
     if (files.length === 0)
         return [];
-    const baseRepoUrl = base.repo.clone_url;
-    const headRepoUrl = head.repo?.clone_url;
-    if (!headRepoUrl)
-        throw new Error('head repo clone URL is missing');
+    const { baseRepoUrl, headRepoUrl } = resolveCloneUrls(base, head);
     const baseRepo = cloneRepo('base', baseRepoUrl, base.ref, base.sha);
     const headRepo = cloneRepo('head', headRepoUrl, head.ref, head.sha);
     const diffs = {};
@@ -37286,6 +37606,8 @@ async function prepareForDiff() {
             throw new Error(`head file does not exist: ${headFile}`);
         if (!fs__default.existsSync(baseFile))
             throw new Error(`base file does not exist: ${baseFile}`);
+        assertInsideRepo(headFile, headRepo, 'head file');
+        assertInsideRepo(baseFile, baseRepo, 'base file');
         diffs[file] = { base: baseFile, head: headFile };
     }
     return Object.entries(diffs).map(([file, diff]) => ({
@@ -37295,6 +37617,11 @@ async function prepareForDiff() {
 }
 
 const COMMENT_TAG = '<!-- action/sqldiff -->';
+const MAX_COMMENT_BODY = 60000;
+function fenceFor(content) {
+    const longest = (content.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
+    return '`'.repeat(Math.max(3, longest + 1));
+}
 function getPullRequestNumber() {
     const { context } = github;
     if (!context.payload.pull_request)
@@ -37338,7 +37665,9 @@ async function createComment(diffs) {
             info(`diff for ${diff.file} was empty, skipping`);
             continue;
         }
-        sections.push(`SQL Diff for \`${diff.file}\`\n\`\`\`sql\n${diffContent}\n\`\`\``);
+        const fence = fenceFor(diffContent);
+        const fileLabel = diff.file.replace(/`/g, '');
+        sections.push(`SQL Diff for \`${fileLabel}\`\n${fence}sql\n${diffContent}\n${fence}`);
     }
     if (sections.length === 0) {
         if (comment) {
@@ -37351,7 +37680,10 @@ async function createComment(diffs) {
         }
         return;
     }
-    const body = `${COMMENT_TAG}\n\n${sections.join('\n')}`;
+    const rawBody = `${COMMENT_TAG}\n\n${sections.join('\n')}`;
+    const body = rawBody.length > MAX_COMMENT_BODY
+        ? `${rawBody.slice(0, MAX_COMMENT_BODY)}\n\n_…diff truncated (${rawBody.length - MAX_COMMENT_BODY} bytes omitted)_`
+        : rawBody;
     if (!comment) {
         await client.rest.issues.createComment({
             ...context.repo,
@@ -40089,6 +40421,9 @@ function requireSemver () {
 
 requireSemver();
 
+function quoteSqlString(value) {
+    return `'${value.replace(/'/g, '\'\'')}'`;
+}
 function checkEncryptedDb(dbFile) {
     if (!fs$1.existsSync(dbFile))
         throw new Error(`File does not exist: ${dbFile}`);
@@ -40102,12 +40437,12 @@ function checkEncryptedDb(dbFile) {
 }
 function dumpDatabase(dbFile, type) {
     const dbKey = getDBKey();
-    const decryptionPragma = checkEncryptedDb(dbFile) ? `PRAGMA key = "${dbKey}";` : '';
+    const decryptionPragma = checkEncryptedDb(dbFile) ? `PRAGMA key = ${quoteSqlString(dbKey)};` : '';
     const diffDir = createDBDir(type, 'dump');
-    const tmpDb = path.join(diffDir, path.basename(dbFile));
+    const tmpDb = path.join(diffDir, `${randomUUID()}.db`);
     const sql = [
         decryptionPragma,
-        `ATTACH DATABASE '${tmpDb}' AS plaintext KEY '';`,
+        `ATTACH DATABASE ${quoteSqlString(tmpDb)} AS plaintext KEY '';`,
         `SELECT sqlcipher_export('plaintext');`,
         `DETACH DATABASE plaintext;`,
     ].join('\n');
