@@ -1,6 +1,6 @@
 {
   "name": "@rotki/action-sqldiff",
-  "version": "3.0.2",
+  "version": "3.1.0",
   "private": true,
   "packageManager": "pnpm@12.13.0",
   "description": "GitHub Actions to add SQLDiffs in pull requests",
