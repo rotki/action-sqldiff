@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     reporters: 'dot',
-    include: ['__tests__/**/*.test.ts'],
+    include: ['tests/**/*.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['json', 'json-summary'],

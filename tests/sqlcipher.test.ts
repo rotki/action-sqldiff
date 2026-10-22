@@ -34,29 +34,29 @@ describe('sqlcipher', () => {
   });
 
   it('detects an sqlcipher encrypted db', () => {
-    expect(checkEncryptedDb('./__tests__/data/encrypted_1.db')).toBe(true);
+    expect(checkEncryptedDb('./tests/data/encrypted_1.db')).toBe(true);
   });
 
   it('detects a normal sqlite db', () => {
-    expect(checkEncryptedDb('./__tests__/data/normal_1.db')).toBe(false);
+    expect(checkEncryptedDb('./tests/data/normal_1.db')).toBe(false);
   });
 
   it('dumps encrypted db as plaintext', () => {
-    const db = dumpDatabase('./__tests__/data/encrypted_1.db', 'base');
+    const db = dumpDatabase('./tests/data/encrypted_1.db', 'base');
     expect(checkEncryptedDb(db)).toBe(false);
     expect(fs.statSync(db).size).toBeGreaterThan(0);
     fs.rmSync(db);
   });
 
   it('dumps normal db as plaintext', () => {
-    const db = dumpDatabase('./__tests__/data/normal_1.db', 'base');
+    const db = dumpDatabase('./tests/data/normal_1.db', 'base');
     expect(checkEncryptedDb(db)).toBe(false);
     expect(fs.statSync(db).size).toBeGreaterThan(0);
     fs.rmSync(db);
   });
 
   it('creates a db diff', () => {
-    const diff = sqlDiff('./__tests__/data/encrypted_1.db', './__tests__/data/encrypted_2.db');
+    const diff = sqlDiff('./tests/data/encrypted_1.db', './tests/data/encrypted_2.db');
     expect(fs.statSync(diff).size).toBeGreaterThan(0);
     const diffContent = fs.readFileSync(diff, { encoding: 'utf-8' }).trim();
     expect(diffContent).toEqual(encDiff);
@@ -70,7 +70,7 @@ describe('sqlcipher', () => {
   });
 
   it('creates a normal db diff', () => {
-    const diff = sqlDiff('./__tests__/data/normal_1.db', './__tests__/data/normal_2.db');
+    const diff = sqlDiff('./tests/data/normal_1.db', './tests/data/normal_2.db');
     expect(fs.statSync(diff).size).toBeGreaterThan(0);
     const diffContent = fs.readFileSync(diff, { encoding: 'utf-8' }).trim();
     expect(diffContent).toEqual(encDiff2);
