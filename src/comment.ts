@@ -51,11 +51,7 @@ export async function deleteComment() {
   }
 }
 
-export async function createComment(diffs: FileVersionsWithDiff[]) {
-  const client = github.getOctokit(getGithubToken());
-  const number = getPullRequestNumber();
-  const comment = await findExistingComment(client, number);
-
+export function buildCommentBody(diffs: FileVersionsWithDiff[]): string | undefined {
   const sections: string[] = [];
   for (const diff of diffs) {
     core.debug(`Reading ${diff.diff} for ${diff.file}`);
@@ -69,7 +65,23 @@ export async function createComment(diffs: FileVersionsWithDiff[]) {
     sections.push(`SQL Diff for \`${fileLabel}\`\n${fence}sql\n${diffContent}\n${fence}`);
   }
 
-  if (sections.length === 0) {
+  if (sections.length === 0)
+    return undefined;
+
+  const rawBody = sections.join('\n');
+  return rawBody.length > MAX_COMMENT_BODY
+    ? `${rawBody.slice(0, MAX_COMMENT_BODY)}\n\n_…diff truncated (${rawBody.length - MAX_COMMENT_BODY} bytes omitted)_`
+    : rawBody;
+}
+
+export async function createComment(diffs: FileVersionsWithDiff[]) {
+  const client = github.getOctokit(getGithubToken());
+  const number = getPullRequestNumber();
+  const comment = await findExistingComment(client, number);
+
+  const content = buildCommentBody(diffs);
+
+  if (!content) {
     if (comment) {
       core.info('all diffs empty, deleting existing comment');
       await client.rest.issues.deleteComment({
@@ -81,10 +93,7 @@ export async function createComment(diffs: FileVersionsWithDiff[]) {
     return;
   }
 
-  const rawBody = `${COMMENT_TAG}\n\n${sections.join('\n')}`;
-  const body = rawBody.length > MAX_COMMENT_BODY
-    ? `${rawBody.slice(0, MAX_COMMENT_BODY)}\n\n_…diff truncated (${rawBody.length - MAX_COMMENT_BODY} bytes omitted)_`
-    : rawBody;
+  const body = `${COMMENT_TAG}\n\n${content}`;
 
   if (!comment) {
     await client.rest.issues.createComment({

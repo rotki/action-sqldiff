@@ -8,14 +8,27 @@ branding:
 
 inputs:
   GITHUB_TOKEN:
-    description: The GITHUB_TOKEN for the repo
-    required: true
+    description: The token used to list the PR files and, in comment mode, to manage the comment
+    required: false
+    default: ${{ github.token }}
   files:
     description: The glob pattern for file that are considered database files
     required: true
   db_key:
     description: The key used to unlock the sqlcipher encrypted database
     default: '123'
+  mode:
+    description: 'comment posts the diff as a PR comment, output writes it to output_file without any GitHub API writes'
+    default: comment
+  output_file:
+    description: Where output mode writes the markdown. Defaults to $RUNNER_TEMP/action-sqldiff/comment.md
+    required: false
+
+outputs:
+  state:
+    description: 'Output mode only: diff, empty (every diff was empty) or none (no modified file matched the pattern)'
+  comment_file:
+    description: 'Output mode only: the path of the markdown file that was written'
 
 runs:
   using: node24

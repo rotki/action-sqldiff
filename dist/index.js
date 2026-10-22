@@ -1,8 +1,8 @@
 import * as os from 'os';
 import os__default, { EOL } from 'os';
-import 'crypto';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
-import { promises, existsSync, readFileSync } from 'fs';
+import { promises, constants as constants$7, existsSync, readFileSync } from 'fs';
 import 'path';
 import http from 'http';
 import https from 'https';
@@ -37,6 +37,7 @@ import * as fs$1 from 'node:fs';
 import fs__default, { lstatSync, realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import os$1 from 'node:os';
+import process$1 from 'node:process';
 import { randomUUID } from 'node:crypto';
 
 // We use any as a valid input type
@@ -158,6 +159,36 @@ function escapeProperty(s) {
         .replace(/\n/g, '%0A')
         .replace(/:/g, '%3A')
         .replace(/,/g, '%2C');
+}
+
+// For internal use, subject to change.
+// We use any as a valid input type
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function issueFileCommand(command, message) {
+    const filePath = process.env[`GITHUB_${command}`];
+    if (!filePath) {
+        throw new Error(`Unable to find environment variable for file command ${command}`);
+    }
+    if (!fs.existsSync(filePath)) {
+        throw new Error(`Missing file at path: ${filePath}`);
+    }
+    fs.appendFileSync(filePath, `${toCommandValue(message)}${os.EOL}`, {
+        encoding: 'utf8'
+    });
+}
+function prepareKeyValueMessage(key, value) {
+    const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
+    const convertedValue = toCommandValue(value);
+    // These should realistically never happen, but just in case someone finds a
+    // way to exploit uuid generation let's not allow keys or values that contain
+    // the delimiter.
+    if (key.includes(delimiter)) {
+        throw new Error(`Unexpected input: name should not contain the delimiter "${delimiter}"`);
+    }
+    if (convertedValue.includes(delimiter)) {
+        throw new Error(`Unexpected input: value should not contain the delimiter "${delimiter}"`);
+    }
+    return `${key}<<${delimiter}${os.EOL}${convertedValue}${os.EOL}${delimiter}`;
 }
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
@@ -28512,7 +28543,7 @@ var MediaTypes;
     });
 };
 
-(undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+var __awaiter$1 = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
@@ -28522,6 +28553,268 @@ var MediaTypes;
     });
 };
 const { access, appendFile, writeFile } = promises;
+const SUMMARY_ENV_VAR = 'GITHUB_STEP_SUMMARY';
+class Summary {
+    constructor() {
+        this._buffer = '';
+    }
+    /**
+     * Finds the summary file path from the environment, rejects if env var is not found or file does not exist
+     * Also checks r/w permissions.
+     *
+     * @returns step summary file path
+     */
+    filePath() {
+        return __awaiter$1(this, void 0, void 0, function* () {
+            if (this._filePath) {
+                return this._filePath;
+            }
+            const pathFromEnv = process.env[SUMMARY_ENV_VAR];
+            if (!pathFromEnv) {
+                throw new Error(`Unable to find environment variable for $${SUMMARY_ENV_VAR}. Check if your runtime environment supports job summaries.`);
+            }
+            try {
+                yield access(pathFromEnv, constants$7.R_OK | constants$7.W_OK);
+            }
+            catch (_a) {
+                throw new Error(`Unable to access summary file: '${pathFromEnv}'. Check if the file has correct read/write permissions.`);
+            }
+            this._filePath = pathFromEnv;
+            return this._filePath;
+        });
+    }
+    /**
+     * Wraps content in an HTML tag, adding any HTML attributes
+     *
+     * @param {string} tag HTML tag to wrap
+     * @param {string | null} content content within the tag
+     * @param {[attribute: string]: string} attrs key-value list of HTML attributes to add
+     *
+     * @returns {string} content wrapped in HTML element
+     */
+    wrap(tag, content, attrs = {}) {
+        const htmlAttrs = Object.entries(attrs)
+            .map(([key, value]) => ` ${key}="${value}"`)
+            .join('');
+        if (!content) {
+            return `<${tag}${htmlAttrs}>`;
+        }
+        return `<${tag}${htmlAttrs}>${content}</${tag}>`;
+    }
+    /**
+     * Writes text in the buffer to the summary buffer file and empties buffer. Will append by default.
+     *
+     * @param {SummaryWriteOptions} [options] (optional) options for write operation
+     *
+     * @returns {Promise<Summary>} summary instance
+     */
+    write(options) {
+        return __awaiter$1(this, void 0, void 0, function* () {
+            const overwrite = !!(options === null || options === void 0 ? void 0 : options.overwrite);
+            const filePath = yield this.filePath();
+            const writeFunc = overwrite ? writeFile : appendFile;
+            yield writeFunc(filePath, this._buffer, { encoding: 'utf8' });
+            return this.emptyBuffer();
+        });
+    }
+    /**
+     * Clears the summary buffer and wipes the summary file
+     *
+     * @returns {Summary} summary instance
+     */
+    clear() {
+        return __awaiter$1(this, void 0, void 0, function* () {
+            return this.emptyBuffer().write({ overwrite: true });
+        });
+    }
+    /**
+     * Returns the current summary buffer as a string
+     *
+     * @returns {string} string of summary buffer
+     */
+    stringify() {
+        return this._buffer;
+    }
+    /**
+     * If the summary buffer is empty
+     *
+     * @returns {boolen} true if the buffer is empty
+     */
+    isEmptyBuffer() {
+        return this._buffer.length === 0;
+    }
+    /**
+     * Resets the summary buffer without writing to summary file
+     *
+     * @returns {Summary} summary instance
+     */
+    emptyBuffer() {
+        this._buffer = '';
+        return this;
+    }
+    /**
+     * Adds raw text to the summary buffer
+     *
+     * @param {string} text content to add
+     * @param {boolean} [addEOL=false] (optional) append an EOL to the raw text (default: false)
+     *
+     * @returns {Summary} summary instance
+     */
+    addRaw(text, addEOL = false) {
+        this._buffer += text;
+        return addEOL ? this.addEOL() : this;
+    }
+    /**
+     * Adds the operating system-specific end-of-line marker to the buffer
+     *
+     * @returns {Summary} summary instance
+     */
+    addEOL() {
+        return this.addRaw(EOL);
+    }
+    /**
+     * Adds an HTML codeblock to the summary buffer
+     *
+     * @param {string} code content to render within fenced code block
+     * @param {string} lang (optional) language to syntax highlight code
+     *
+     * @returns {Summary} summary instance
+     */
+    addCodeBlock(code, lang) {
+        const attrs = Object.assign({}, (lang && { lang }));
+        const element = this.wrap('pre', this.wrap('code', code), attrs);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML list to the summary buffer
+     *
+     * @param {string[]} items list of items to render
+     * @param {boolean} [ordered=false] (optional) if the rendered list should be ordered or not (default: false)
+     *
+     * @returns {Summary} summary instance
+     */
+    addList(items, ordered = false) {
+        const tag = ordered ? 'ol' : 'ul';
+        const listItems = items.map(item => this.wrap('li', item)).join('');
+        const element = this.wrap(tag, listItems);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML table to the summary buffer
+     *
+     * @param {SummaryTableCell[]} rows table rows
+     *
+     * @returns {Summary} summary instance
+     */
+    addTable(rows) {
+        const tableBody = rows
+            .map(row => {
+            const cells = row
+                .map(cell => {
+                if (typeof cell === 'string') {
+                    return this.wrap('td', cell);
+                }
+                const { header, data, colspan, rowspan } = cell;
+                const tag = header ? 'th' : 'td';
+                const attrs = Object.assign(Object.assign({}, (colspan && { colspan })), (rowspan && { rowspan }));
+                return this.wrap(tag, data, attrs);
+            })
+                .join('');
+            return this.wrap('tr', cells);
+        })
+            .join('');
+        const element = this.wrap('table', tableBody);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds a collapsable HTML details element to the summary buffer
+     *
+     * @param {string} label text for the closed state
+     * @param {string} content collapsable content
+     *
+     * @returns {Summary} summary instance
+     */
+    addDetails(label, content) {
+        const element = this.wrap('details', this.wrap('summary', label) + content);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML image tag to the summary buffer
+     *
+     * @param {string} src path to the image you to embed
+     * @param {string} alt text description of the image
+     * @param {SummaryImageOptions} options (optional) addition image attributes
+     *
+     * @returns {Summary} summary instance
+     */
+    addImage(src, alt, options) {
+        const { width, height } = options || {};
+        const attrs = Object.assign(Object.assign({}, (width && { width })), (height && { height }));
+        const element = this.wrap('img', null, Object.assign({ src, alt }, attrs));
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML section heading element
+     *
+     * @param {string} text heading text
+     * @param {number | string} [level=1] (optional) the heading level, default: 1
+     *
+     * @returns {Summary} summary instance
+     */
+    addHeading(text, level) {
+        const tag = `h${level}`;
+        const allowedTag = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)
+            ? tag
+            : 'h1';
+        const element = this.wrap(allowedTag, text);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML thematic break (<hr>) to the summary buffer
+     *
+     * @returns {Summary} summary instance
+     */
+    addSeparator() {
+        const element = this.wrap('hr', null);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML line break (<br>) to the summary buffer
+     *
+     * @returns {Summary} summary instance
+     */
+    addBreak() {
+        const element = this.wrap('br', null);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML blockquote to the summary buffer
+     *
+     * @param {string} text quote text
+     * @param {string} cite (optional) citation url
+     *
+     * @returns {Summary} summary instance
+     */
+    addQuote(text, cite) {
+        const attrs = Object.assign({}, (cite && { cite }));
+        const element = this.wrap('blockquote', text, attrs);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML anchor tag to the summary buffer
+     *
+     * @param {string} text link text/content
+     * @param {string} href hyperlink
+     *
+     * @returns {Summary} summary instance
+     */
+    addLink(text, href) {
+        const element = this.wrap('a', text, { href });
+        return this.addRaw(element).addEOL();
+    }
+}
+const _summary = new Summary();
+const summary = _summary;
 
 (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -28639,6 +28932,21 @@ function getMultilineInput(name, options) {
         return inputs;
     }
     return inputs.map(input => input.trim());
+}
+/**
+ * Sets the value of an output.
+ *
+ * @param     name     name of the output to set
+ * @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function setOutput(name, value) {
+    const filePath = process.env['GITHUB_OUTPUT'] || '';
+    if (filePath) {
+        return issueFileCommand('OUTPUT', prepareKeyValueMessage(name, value));
+    }
+    process.stdout.write(os.EOL);
+    issueCommand('set-output', { name }, toCommandValue(value));
 }
 //-----------------------------------------------------------------------
 // Results
@@ -34048,6 +34356,13 @@ function createDBDir(type, subdir) {
         fs__default.mkdirSync(diffDir, { recursive: true });
     return diffDir;
 }
+function writeOutputFile(file, content) {
+    const resolved = path.resolve(file);
+    if (resolved === TMP_DIR || resolved.startsWith(TMP_DIR + path.sep))
+        throw new Error(`output_file must be outside ${TMP_DIR}, which is deleted after the run: ${resolved}`);
+    fs__default.mkdirSync(path.dirname(resolved), { recursive: true });
+    fs__default.writeFileSync(resolved, content);
+}
 function createDiffDir() {
     const dir = createTmpDir();
     const diffDir = path.join(dir, 'diff');
@@ -34059,6 +34374,8 @@ function createDiffDir() {
 const INPUT_FILES = 'files';
 const GITHUB_TOKEN = 'GITHUB_TOKEN';
 const DB_KEY = 'db_key';
+const MODE = 'mode';
+const OUTPUT_FILE = 'output_file';
 function getFiles() {
     return getMultilineInput(INPUT_FILES, { required: true });
 }
@@ -34067,6 +34384,21 @@ function getDBKey() {
 }
 function getGithubToken() {
     return getInput(GITHUB_TOKEN, { required: true });
+}
+function getMode() {
+    const mode = getInput(MODE) || 'comment';
+    if (mode !== 'comment' && mode !== 'output')
+        throw new Error(`Unknown mode '${mode}', expected 'comment' or 'output'`);
+    return mode;
+}
+function getOutputFile() {
+    const file = getInput(OUTPUT_FILE);
+    if (file)
+        return path.resolve(file);
+    const runnerTemp = process$1.env.RUNNER_TEMP;
+    if (!runnerTemp)
+        throw new Error('RUNNER_TEMP is not set, set output_file explicitly');
+    return path.join(runnerTemp, 'action-sqldiff', 'comment.md');
 }
 
 var utils = {};
@@ -36736,10 +37068,7 @@ async function deleteComment() {
         });
     }
 }
-async function createComment(diffs) {
-    const client = getOctokit(getGithubToken());
-    const number = getPullRequestNumber();
-    const comment = await findExistingComment(client, number);
+function buildCommentBody(diffs) {
     const sections = [];
     for (const diff of diffs) {
         debug(`Reading ${diff.diff} for ${diff.file}`);
@@ -36752,7 +37081,19 @@ async function createComment(diffs) {
         const fileLabel = diff.file.replace(/`/g, '');
         sections.push(`SQL Diff for \`${fileLabel}\`\n${fence}sql\n${diffContent}\n${fence}`);
     }
-    if (sections.length === 0) {
+    if (sections.length === 0)
+        return undefined;
+    const rawBody = sections.join('\n');
+    return rawBody.length > MAX_COMMENT_BODY
+        ? `${rawBody.slice(0, MAX_COMMENT_BODY)}\n\n_…diff truncated (${rawBody.length - MAX_COMMENT_BODY} bytes omitted)_`
+        : rawBody;
+}
+async function createComment(diffs) {
+    const client = getOctokit(getGithubToken());
+    const number = getPullRequestNumber();
+    const comment = await findExistingComment(client, number);
+    const content = buildCommentBody(diffs);
+    if (!content) {
         if (comment) {
             info('all diffs empty, deleting existing comment');
             await client.rest.issues.deleteComment({
@@ -36763,10 +37104,7 @@ async function createComment(diffs) {
         }
         return;
     }
-    const rawBody = `${COMMENT_TAG}\n\n${sections.join('\n')}`;
-    const body = rawBody.length > MAX_COMMENT_BODY
-        ? `${rawBody.slice(0, MAX_COMMENT_BODY)}\n\n_…diff truncated (${rawBody.length - MAX_COMMENT_BODY} bytes omitted)_`
-        : rawBody;
+    const body = `${COMMENT_TAG}\n\n${content}`;
     if (!comment) {
         await client.rest.issues.createComment({
             ...context.repo,
@@ -39644,12 +39982,36 @@ function sqlDiff(baseDB, headDb) {
     return diffFile;
 }
 
+async function writeOutput(state, body = '') {
+    const file = getOutputFile();
+    writeOutputFile(file, body);
+    info(`wrote ${state} diff output to ${file}`);
+    setOutput('state', state);
+    setOutput('comment_file', file);
+    if (body)
+        await summary.addRaw(body).write();
+}
+async function handleDiffs(mode, diffs) {
+    if (mode === 'comment') {
+        await createComment(diffs);
+        return;
+    }
+    const body = buildCommentBody(diffs);
+    if (body)
+        await writeOutput('diff', body);
+    else
+        await writeOutput('empty');
+}
 async function run() {
     try {
+        const mode = getMode();
         const modified = await prepareForDiff();
         if (modified.length === 0) {
             info('No modified files matching the pattern');
-            await deleteComment();
+            if (mode === 'comment')
+                await deleteComment();
+            else
+                await writeOutput('none');
             return;
         }
         info(`Matched ${modified.length} files to pattern`);
@@ -39657,7 +40019,7 @@ async function run() {
             diff: sqlDiff(base, head),
             file,
         }));
-        await createComment(diffs);
+        await handleDiffs(mode, diffs);
     }
     catch (error) {
         if (error instanceof NotAPullRequestError)

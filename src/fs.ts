@@ -23,6 +23,14 @@ export function createDBDir(type: 'base' | 'head', subdir: 'repo' | 'dump'): str
   return diffDir;
 }
 
+export function writeOutputFile(file: string, content: string): void {
+  const resolved = path.resolve(file);
+  if (resolved === TMP_DIR || resolved.startsWith(TMP_DIR + path.sep))
+    throw new Error(`output_file must be outside ${TMP_DIR}, which is deleted after the run: ${resolved}`);
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  fs.writeFileSync(resolved, content);
+}
+
 export function createDiffDir(): string {
   const dir = createTmpDir();
   const diffDir = path.join(dir, 'diff');
