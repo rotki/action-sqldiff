@@ -1,7 +1,7 @@
-import mm from 'micromatch';
+import picomatch from 'picomatch';
 
 export function isDBFile(filename: string, patterns: string[]): boolean {
-  return mm.isMatch(filename, patterns, { basename: true });
+  return picomatch.isMatch(filename, patterns, { basename: true });
 }
 
 export function validateGitUrl(url: string): void {

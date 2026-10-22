@@ -39,7 +39,7 @@
   "dependencies": {
     "@actions/core": "3.0.1",
     "@actions/github": "9.1.1",
-    "micromatch": "4.0.8",
+    "picomatch": "4.0.7",
     "semver": "7.8.5"
   },
   "devDependencies": {
@@ -52,8 +52,8 @@
     "@rollup/plugin-typescript": "12.3.0",
     "@rotki/eslint-config": "8.4.1",
     "@rotki/eslint-plugin": "1.10.0",
-    "@types/micromatch": "4.0.10",
     "@types/node": "24.19.2",
+    "@types/picomatch": "4.0.3",
     "@types/semver": "7.8.0",
     "@vitest/coverage-v8": "5.0.4",
     "bumpp": "12.3.0",

@@ -4,6 +4,9 @@ import { isDBFile, validateGitUrl } from '../src/utils';
 describe('utils', () => {
   it('matches db files', () => {
     expect(isDBFile('tests/data/normal_2.db', ['*.db'])).toBe(true);
+    expect(isDBFile('data/global.{db,sqlite}', ['*.db'])).toBe(false);
+    expect(isDBFile('data/global.sqlite', ['*.{db,sqlite}'])).toBe(true);
+    expect(isDBFile('data/global.json', ['*.db', '*.sqlite'])).toBe(false);
   });
 
   it('should allow a proper repo', () => {
