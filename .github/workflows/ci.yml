@@ -74,14 +74,10 @@ jobs:
         id: pnpm-install
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        id: pnpm-lint
-        run: pnpm run lint
-
       - name: Install SQLCipher
         id: sqlcipher-install
         run: sudo apt-get install -y sqlcipher sqlite3-tools
 
-      - name: Test
-        id: pnpm-test
-        run: pnpm run test
+      - name: Type check, lint, package and test
+        id: pnpm-all
+        run: pnpm run all

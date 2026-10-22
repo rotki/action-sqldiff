@@ -15,6 +15,11 @@
       "matchPackageNames": ["@types/node", "node"]
     },
     {
+      "description": "Keep the devcontainer on the same Node.js major as the action runtime",
+      "allowedVersions": "<25",
+      "matchPackageNames": ["mcr.microsoft.com/devcontainers/typescript-node"]
+    },
+    {
       "allowedVersions": "/^(12)\\./",
       "matchPackageNames": ["pnpm"]
     },

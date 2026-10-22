@@ -17,10 +17,6 @@ inputs:
     description: The key used to unlock the sqlcipher encrypted database
     default: '123'
 
-outputs:
-  time:
-    description: Your output description here
-
 runs:
   using: node24
   main: dist/index.js
