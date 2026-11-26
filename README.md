@@ -83,7 +83,7 @@ jobs:
       contents: read
     steps:
       - name: Install sqlcipher and sqldiff
-        run: sudo apt-get install -y sqlcipher sqlite3-tools
+        run: sudo apt-get update && sudo apt-get install -y sqlcipher sqlite3-tools
 
       - uses: rotki/action-sqldiff@v3
         id: sqldiff
@@ -138,7 +138,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Install sqlcipher and sqldiff
-        run: sudo apt-get install -y sqlcipher sqlite3-tools
+        run: sudo apt-get update && sudo apt-get install -y sqlcipher sqlite3-tools
 
       - uses: rotki/action-sqldiff@v3
         with:

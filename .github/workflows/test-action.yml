@@ -1,7 +1,10 @@
 name: Test action
 
+# Runs the action from the pull request itself in output mode. Under pull_request the workflow
+# and the action come from the PR and the token is read-only, so the job needs no write access
+# and nothing the PR changes runs with one.
 on:
-  pull_request_target:
+  pull_request:
     branches:
       - main
   push:
@@ -16,11 +19,12 @@ permissions: { }
 
 jobs:
   test-action:
-    name: GitHub Actions Test
+    name: Test action (output mode)
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read # list the files of the pull request
 
     steps:
       - name: Checkout
@@ -37,6 +41,19 @@ jobs:
         id: test-action
         uses: ./
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          mode: output
           files: |
             *.db
+
+      - name: Check the action reported a state
+        if: github.event_name == 'pull_request'
+        env:
+          STATE: ${{ steps.test-action.outputs.state }}
+        run: |
+          case "$STATE" in
+            diff | empty | none) echo "state: $STATE" ;;
+            *)
+              echo "::error::Unexpected state '$STATE'."
+              exit 1
+              ;;
+          esac
