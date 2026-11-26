@@ -30,7 +30,8 @@ jobs:
           persist-credentials: false
 
       - name: Install required
-        run: sudo apt-get install -y sqlcipher sqlite3-tools
+        # The runner image ships an apt index that goes stale when Ubuntu replaces a package.
+        run: sudo apt-get update && sudo apt-get install -y sqlcipher sqlite3-tools
 
       - name: Test Local Action
         id: test-action
