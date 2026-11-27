@@ -44,8 +44,6 @@ of repeating it.
 - `dist/index.js` and `dist/index.js.map`: the committed bundle that GitHub runs. Never edit it by
   hand.
 - `badges/coverage.svg`: written by `pnpm run coverage` from the coverage summary.
-- `script/release`: a tagging helper left from the GitHub action template. Releases go through
-  `pnpm run release` instead (see Releasing).
 
 ## Commands
 
