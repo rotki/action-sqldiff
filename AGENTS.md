@@ -230,8 +230,9 @@ no pull request could fix it.
 ## Releasing
 
 A release is a version tag plus the moving major tag. Pushing a `vX.Y.Z` tag runs
-`.github/workflows/release.yml`, which only creates the GitHub release with `changelogithub`.
-Nothing is published to npm (the package is private).
+`.github/workflows/release.yml`, which only creates the GitHub release with `changelogithub`. It
+names the previous `vX.Y.Z` tag itself, so a major tag already on the release commit cannot confuse
+it. Nothing is published to npm (the package is private).
 
 1. Make sure `main` is green, contains everything for the release, and that the committed `dist/`
    is current.
@@ -255,6 +256,16 @@ Nothing is published to npm (the package is private).
 
 5. Verify: `gh release view vX.Y.Z -R rotki/action-sqldiff`, and that `vN` and `vX.Y.Z` point at the
    same commit (`git rev-list -n1 vN` and `git rev-list -n1 vX.Y.Z`).
+
+   If the release is missing, read the `release` run's log and fix the cause. To publish the
+   notes for a tag that is already pushed, run `changelogithub` yourself with the previous release
+   and the repository named, since `origin` can be a fork. For example:
+
+   ```sh
+   GITHUB_TOKEN=$(gh auth token) npx changelogithub@14.0.0 --github rotki/action-sqldiff \
+     --from v3.1.0 --to v3.1.1
+   ```
+
 6. Update the consumer: change the `rotki/action-sqldiff@<sha> # vX.Y.Z` reference in
    `rotki/rotki`'s `.github/workflows/rotki_sqldiff.yml` to the new commit and version (Renovate in
    that repository may propose it).
